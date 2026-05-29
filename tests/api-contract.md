@@ -78,7 +78,12 @@ Structured event types (`feeding`, `sleep`, `diaper`, `symptom`, `measurement`) 
 
 ## Telegram
 
-- `POST /telegram/webhook` (public)
+- `POST /telegram/link-tokens` — body: `{ childId }` — create one-time link code (15 min TTL)
+- `POST /telegram/link` (public) — body: `{ code, telegramUserId, telegramChatId? }` — redeem code, returns JWT session + `childId`
+- `GET /telegram/context` (public) — headers: `X-Bot-Secret`, `X-Telegram-User-Id` — restore bot session for linked user
+- `POST /telegram/webhook` (public) — Telegram update payload; handled by embedded bot when `TELEGRAM_BOT_TOKEN` is configured
+
+See `apps/bot/README.md` for webhook setup.
 
 ## Export
 

@@ -45,16 +45,17 @@ model Family {
 }
 
 model User {
-  id             String      @id @default(uuid())
-  email          String      @unique
-  passwordHash   String
-  passwordSalt   String
-  displayName    String
-  telegramUserId String?     @unique
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
-  caregiverLinks Caregiver[]
-  eventsCreated  Event[]     @relation("EventCreatedBy")
+  id                 String              @id @default(uuid())
+  email              String              @unique
+  passwordHash       String
+  passwordSalt       String
+  displayName        String
+  telegramUserId     String?             @unique
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  caregiverLinks     Caregiver[]
+  eventsCreated      Event[]             @relation("EventCreatedBy")
+  telegramLinkTokens TelegramLinkToken[]
 }
 
 model Caregiver {
@@ -86,12 +87,16 @@ model Child {
 }
 
 model TelegramLinkToken {
-  id        String   @id @default(uuid())
-  childId   String
-  token     String   @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  child     Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  id              String   @id @default(uuid())
+  childId         String
+  createdByUserId String
+  token           String   @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  child           Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+  createdBy       User     @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([createdByUserId, usedAt])
 }
 
 model Event {

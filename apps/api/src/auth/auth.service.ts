@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { PrismaService } from "../services/prisma.service";
@@ -105,6 +105,52 @@ export class AuthService {
         name: item.family.name,
         role: item.role
       }))
+    };
+  }
+
+  async buildBotSession(userId: string, childId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new UnauthorizedException("User not found");
+    }
+
+    const child = await this.prisma.child.findUnique({
+      where: { id: childId },
+      include: { family: true }
+    });
+    if (!child) {
+      throw new NotFoundException("Child not found");
+    }
+
+    const caregiver = await this.prisma.caregiver.findFirst({
+      where: { userId, familyId: child.familyId }
+    });
+    if (!caregiver) {
+      throw new ForbiddenException("No access to this child");
+    }
+
+    const caregivers = await this.prisma.caregiver.findMany({
+      where: { userId },
+      include: { family: true }
+    });
+    const familyIds = caregivers.map((item) => item.familyId);
+
+    const auth = this.buildAuthResponse(
+      user.id,
+      user.email,
+      user.displayName,
+      familyIds,
+      caregivers.map((item) => ({
+        id: item.familyId,
+        name: item.family.name,
+        role: item.role
+      }))
+    );
+
+    return {
+      ...auth,
+      childId: child.id,
+      childName: child.name
     };
   }
 
