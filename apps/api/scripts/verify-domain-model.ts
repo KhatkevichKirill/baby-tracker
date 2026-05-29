@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { FamilyAccessService } from "../src/auth/family-access.service";
 import { EventService } from "../src/services/event.service";
 import { EventRepository } from "../src/repositories/event.repository";
 import { AuditRepository } from "../src/repositories/audit.repository";
@@ -24,11 +25,17 @@ async function assertDraftConfirmLinks(
 }
 
 async function main() {
-  const events = new EventService(new EventRepository(prisma as never), new AuditRepository(prisma as never));
-  const drafts = new DraftService(prisma as never, events);
+  const familyAccess = new FamilyAccessService(prisma as never);
+  const events = new EventService(
+    new EventRepository(prisma as never),
+    new AuditRepository(prisma as never),
+    familyAccess
+  );
+  const drafts = new DraftService(prisma as never, events, familyAccess);
 
   const user = await prisma.user.findFirstOrThrow({ where: { email: "demo@baby.local" } });
   const child = await prisma.child.findFirstOrThrow({ where: { name: "Demo Baby" } });
+  const familyIds = [child.familyId];
 
   const rawInput = await prisma.rawInput.create({
     data: {
@@ -39,8 +46,7 @@ async function main() {
     }
   });
 
-  const draft = await drafts.create({
-    familyId: child.familyId,
+  const draft = await drafts.create(familyIds, {
     childId: child.id,
     rawInputId: rawInput.id,
     type: "feeding",
@@ -50,10 +56,10 @@ async function main() {
     sourceFragment: "120 мл смеси"
   });
 
-  const confirmed = await drafts.confirm(draft.id, user.id);
+  const confirmed = await drafts.confirm(familyIds, draft.id, user.id);
   await assertDraftConfirmLinks(confirmed, draft.id, rawInput.id);
 
-  const repeated = await drafts.confirm(draft.id, user.id);
+  const repeated = await drafts.confirm(familyIds, draft.id, user.id);
   if (!repeated || repeated.id !== confirmed!.id) {
     throw new Error("Repeated draft.confirm must return the same final event");
   }
@@ -67,8 +73,7 @@ async function main() {
     }
   });
 
-  const concurrentDraft = await drafts.create({
-    familyId: child.familyId,
+  const concurrentDraft = await drafts.create(familyIds, {
     childId: child.id,
     rawInputId: concurrentRawInput.id,
     type: "feeding",
@@ -79,8 +84,8 @@ async function main() {
   });
 
   const [firstConcurrent, secondConcurrent] = await Promise.all([
-    drafts.confirm(concurrentDraft.id, user.id),
-    drafts.confirm(concurrentDraft.id, user.id)
+    drafts.confirm(familyIds, concurrentDraft.id, user.id),
+    drafts.confirm(familyIds, concurrentDraft.id, user.id)
   ]);
 
   if (!firstConcurrent || !secondConcurrent || firstConcurrent.id !== secondConcurrent.id) {
@@ -96,8 +101,7 @@ async function main() {
     throw new Error(`Expected exactly one final event for draft, got ${linkedEventCount}`);
   }
 
-  const manual = await events.create({
-    familyId: child.familyId,
+  const manual = await events.create(familyIds, {
     childId: child.id,
     createdById: user.id,
     type: "sleep",
@@ -110,14 +114,13 @@ async function main() {
     }
   });
 
-  const updated = await events.update(manual!.id, {
+  const updated = await events.update(familyIds, manual!.id, {
     actorUserId: user.id,
     note: "Updated nap"
   });
   if (updated?.note !== "Updated nap") throw new Error("Update failed");
 
-  const feeding = await events.create({
-    familyId: child.familyId,
+  const feeding = await events.create(familyIds, {
     childId: child.id,
     createdById: user.id,
     type: "feeding",
@@ -126,7 +129,7 @@ async function main() {
     details: { kind: "formula", volumeMl: 100 }
   });
 
-  const mergedUpdate = await events.update(feeding!.id, {
+  const mergedUpdate = await events.update(familyIds, feeding!.id, {
     actorUserId: user.id,
     details: { volumeMl: 150 }
   });
@@ -135,11 +138,11 @@ async function main() {
     throw new Error("Partial details update must merge with existing detailsJson");
   }
 
-  await events.remove(manual!.id, user.id);
-  const deleted = await events.getById(manual!.id).catch(() => null);
+  await events.remove(familyIds, manual!.id, user.id);
+  const deleted = await events.getById(familyIds, manual!.id).catch(() => null);
   if (deleted) throw new Error("Soft delete should hide event from getById");
 
-  const timeline = await events.timeline(child.id);
+  const timeline = await events.timeline(familyIds, child.id);
   if (timeline.length < 2) throw new Error("Timeline should contain confirmed events");
   for (let i = 1; i < timeline.length; i += 1) {
     if (timeline[i - 1].occurredAt < timeline[i].occurredAt) {

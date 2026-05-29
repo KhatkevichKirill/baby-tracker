@@ -1,36 +1,27 @@
 import { Body, Controller, Get, Module, Param, Post } from "@nestjs/common";
-import { PrismaService } from "../services/prisma.service";
-
-type Child = {
-  familyId: string;
-  name: string;
-  dateOfBirth: string;
-  sexAtBirth?: string;
-};
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { RequestUser } from "../auth/auth.types";
+import { ChildService } from "../services/child.service";
+import { AuthModule } from "./auth.module";
 
 @Controller("children")
 class ChildController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly children: ChildService) {}
 
   @Post()
-  create(@Body() payload: Child) {
-    return this.prisma.child.create({
-      data: {
-        familyId: payload.familyId,
-        name: payload.name,
-        dateOfBirth: new Date(payload.dateOfBirth),
-        sexAtBirth: payload.sexAtBirth
-      }
-    });
+  create(@CurrentUser() user: RequestUser, @Body() body: unknown) {
+    return this.children.create(user.userId, user.familyIds, body);
   }
 
   @Get(":id")
-  get(@Param("id") id: string) {
-    return this.prisma.child.findUnique({ where: { id } });
+  get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.children.getById(user.familyIds, id);
   }
 }
 
 @Module({
-  controllers: [ChildController]
+  imports: [AuthModule],
+  controllers: [ChildController],
+  providers: [ChildService]
 })
 export class ChildModule {}

@@ -1,40 +1,32 @@
 import { Body, Controller, Get, Module, Param, Patch, Post } from "@nestjs/common";
-import { type DraftEvent } from "@baby-tracker/shared";
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { RequestUser } from "../auth/auth.types";
 import { DraftService } from "../services/draft.service";
 import { EventModule } from "./event.module";
-
-type CreateDraftDto = DraftEvent & {
-  familyId: string;
-  childId: string;
-  rawInputId: string;
-};
-
-type ConfirmDraftDto = {
-  createdById: string;
-};
+import { AuthModule } from "./auth.module";
 
 @Controller("drafts")
 class DraftController {
   constructor(private readonly drafts: DraftService) {}
 
   @Post()
-  create(@Body() payload: CreateDraftDto) {
-    return this.drafts.create(payload);
+  create(@CurrentUser() user: RequestUser, @Body() body: unknown) {
+    return this.drafts.create(user.familyIds, body);
   }
 
   @Get(":id")
-  get(@Param("id") id: string) {
-    return this.drafts.get(id);
+  get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.drafts.get(user.familyIds, id);
   }
 
   @Patch(":id/confirm")
-  confirm(@Param("id") id: string, @Body() payload: ConfirmDraftDto) {
-    return this.drafts.confirm(id, payload.createdById);
+  confirm(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.drafts.confirm(user.familyIds, id, user.userId);
   }
 }
 
 @Module({
-  imports: [EventModule],
+  imports: [EventModule, AuthModule],
   controllers: [DraftController],
   providers: [DraftService]
 })
