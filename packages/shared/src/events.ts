@@ -60,6 +60,12 @@ export const createEventInputSchema = baseEventSchema.extend({
   details: z.record(z.any()).default({})
 });
 
+export const updateEventInputSchema = z.object({
+  occurredAt: z.string().datetime().optional(),
+  note: z.string().max(2000).nullable().optional(),
+  details: z.record(z.any()).optional()
+});
+
 export const draftEventSchema = z.object({
   type: eventTypeSchema,
   occurredAt: z.string().datetime().optional(),
@@ -69,4 +75,5 @@ export const draftEventSchema = z.object({
 });
 
 export type CreateEventInput = z.infer<typeof createEventInputSchema>;
+export type UpdateEventInput = z.infer<typeof updateEventInputSchema>;
 export type DraftEvent = z.infer<typeof draftEventSchema>;

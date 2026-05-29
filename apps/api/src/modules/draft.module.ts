@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Module, Param, Patch, Post } from "@nestjs/common";
 import { type DraftEvent } from "@baby-tracker/shared";
 import { DraftService } from "../services/draft.service";
-import { EventService } from "../services/event.service";
+import { EventModule } from "./event.module";
 
 type CreateDraftDto = DraftEvent & {
   familyId: string;
@@ -34,7 +34,8 @@ class DraftController {
 }
 
 @Module({
+  imports: [EventModule],
   controllers: [DraftController],
-  providers: [DraftService, EventService]
+  providers: [DraftService]
 })
 export class DraftModule {}

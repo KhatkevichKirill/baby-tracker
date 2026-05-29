@@ -61,6 +61,20 @@ export class DraftService {
       }
     });
 
-    return event;
+    if (!event?.id) return event;
+
+    return this.prisma.event.findUnique({
+      where: { id: event.id },
+      include: {
+        feedingEvent: true,
+        sleepEvent: true,
+        diaperEvent: true,
+        symptomEvent: true,
+        measurement: true,
+        attachments: true,
+        rawInput: true,
+        fromDraftEvent: true
+      }
+    });
   }
 }
