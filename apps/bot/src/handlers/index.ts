@@ -2,6 +2,11 @@ import { Telegraf } from "telegraf";
 import type { ApiClient } from "../api-client";
 import { formatApiError, parseTemperature } from "../format";
 import {
+  clearPendingAction,
+  resolvePendingTextInput,
+  setPendingAction
+} from "../pending-actions";
+import {
   createStructuredEvent,
   submitRawInput,
   welcomeText
@@ -17,6 +22,10 @@ import {
   type BotContext
 } from "../session";
 
+function telegramUserIdFrom(ctx: BotContext) {
+  return String(ctx.from?.id ?? "");
+}
+
 export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
   bot.start(async (ctx) => {
     await ctx.reply(welcomeText(), mainMenuKeyboard());
@@ -27,7 +36,7 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
   });
 
   bot.command("link", async (ctx) => {
-    const telegramUserId = String(ctx.from?.id ?? "");
+    const telegramUserId = telegramUserIdFrom(ctx);
     const parts = ("text" in ctx.message ? ctx.message.text : "").trim().split(/\s+/);
     const code = parts[1];
     if (!code) {
@@ -80,10 +89,11 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
   });
 
   bot.command("temp", async (ctx) => {
+    const telegramUserId = telegramUserIdFrom(ctx);
     const text = "text" in ctx.message ? ctx.message.text : "";
     const value = parseTemperature(text.replace("/temp", ""));
     if (value == null) {
-      ctx.state.pendingAction = "temp";
+      setPendingAction(telegramUserId, { type: "temp" });
       await ctx.reply("Отправьте температуру, например: 37.2");
       return;
     }
@@ -99,9 +109,10 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
   });
 
   bot.command("note", async (ctx) => {
+    const telegramUserId = telegramUserIdFrom(ctx);
     const text = "text" in ctx.message ? ctx.message.text.replace("/note", "").trim() : "";
     if (!text) {
-      ctx.state.pendingAction = "note";
+      setPendingAction(telegramUserId, { type: "note" });
       await ctx.reply("Отправьте текст заметки следующим сообщением.");
       return;
     }
@@ -117,6 +128,7 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
   });
 
   bot.action(/^cmd:(.+)$/, async (ctx) => {
+    const telegramUserId = telegramUserIdFrom(ctx);
     const action = ctx.match[1];
     await ctx.answerCbQuery();
     if (action === "feed") {
@@ -149,12 +161,12 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
       return;
     }
     if (action === "temp") {
-      ctx.state.pendingAction = "temp";
+      setPendingAction(telegramUserId, { type: "temp" });
       await ctx.reply("Отправьте температуру, например: 37.2");
       return;
     }
     if (action === "note") {
-      ctx.state.pendingAction = "note";
+      setPendingAction(telegramUserId, { type: "note" });
       await ctx.reply("Отправьте текст заметки следующим сообщением.");
     }
   });
@@ -202,58 +214,58 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
 
   bot.action(/^draft:edit:(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
-    ctx.state.pendingAction = "draft_edit";
-    ctx.state.pendingDraftId = ctx.match[1];
+    const telegramUserId = telegramUserIdFrom(ctx);
+    setPendingAction(telegramUserId, { type: "draft_edit", draftId: ctx.match[1] });
     await ctx.reply("Отправьте исправленный текст. Будет создан новый черновик.");
   });
 
   bot.action(/^draft:cancel:(.+)$/, async (ctx) => {
     await ctx.answerCbQuery();
+    clearPendingAction(telegramUserIdFrom(ctx));
     await ctx.reply("Черновик не сохранен.");
   });
 
   bot.on("text", async (ctx) => {
+    const telegramUserId = telegramUserIdFrom(ctx);
     const text = ctx.message.text.trim();
     if (text.startsWith("/")) return;
 
-    if (ctx.state.pendingAction === "note") {
-      ctx.state.pendingAction = undefined;
+    const pending = resolvePendingTextInput(telegramUserId, text, parseTemperature);
+
+    if (pending.kind === "note") {
       await createStructuredEvent(
         api,
         ctx.state.session!,
         "note",
-        { text },
-        text,
+        { text: pending.text },
+        pending.text,
         (replyText) => ctx.reply(replyText)
       );
       return;
     }
 
-    if (ctx.state.pendingAction === "temp") {
-      ctx.state.pendingAction = undefined;
-      const value = parseTemperature(text);
-      if (value == null) {
-        await ctx.reply("Не удалось распознать температуру. Пример: 37.2");
-        return;
-      }
+    if (pending.kind === "temp_invalid") {
+      await ctx.reply("Не удалось распознать температуру. Пример: 37.2");
+      return;
+    }
+
+    if (pending.kind === "temp") {
       await createStructuredEvent(
         api,
         ctx.state.session!,
         "measurement",
-        { temperatureC: value },
-        `Температура ${value}°C`,
+        { temperatureC: pending.value },
+        `Температура ${pending.value}°C`,
         (replyText) => ctx.reply(replyText)
       );
       return;
     }
 
-    if (ctx.state.pendingAction === "draft_edit") {
-      ctx.state.pendingAction = undefined;
-      ctx.state.pendingDraftId = undefined;
+    if (pending.kind === "draft_edit") {
       await submitRawInput(
         api,
         ctx.state.session!,
-        text,
+        pending.text,
         String(ctx.chat.id),
         (replyText, extra) => ctx.reply(replyText, extra)
       );

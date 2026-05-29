@@ -39,6 +39,17 @@ export class TelegramService {
     }
   }
 
+  getWebhookSecret() {
+    return process.env.TELEGRAM_WEBHOOK_SECRET ?? process.env.TELEGRAM_BOT_SECRET;
+  }
+
+  assertWebhookSecret(secret: string | undefined) {
+    const expected = this.getWebhookSecret();
+    if (!expected || secret !== expected) {
+      throw new UnauthorizedException("Invalid Telegram webhook secret");
+    }
+  }
+
   async createLinkToken(userId: string, familyIds: string[], input: unknown) {
     const payload = createLinkTokenSchema.parse(input);
     await this.familyAccess.assertChildAccess(familyIds, payload.childId);

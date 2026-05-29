@@ -7,6 +7,7 @@ export const envSchema = z.object({
   SETUP_TOKEN: z.string().min(8),
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_BOT_SECRET: z.string().min(16).optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().min(16).optional(),
   OPENAI_API_KEY: z.string().optional(),
   UPLOADS_DIR: z.string().default("./uploads")
 });

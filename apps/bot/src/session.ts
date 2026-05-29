@@ -49,7 +49,5 @@ export function requireLinkedUser(api: ApiClient): MiddlewareFn<Context> {
 export type BotContext = Context & {
   state: {
     session?: BotSession;
-    pendingAction?: "note" | "temp" | "draft_edit";
-    pendingDraftId?: string;
   };
 };

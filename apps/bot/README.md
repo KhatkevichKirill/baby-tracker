@@ -7,6 +7,7 @@ Telegraf bot for Baby Tracker with account linking, structured commands, and dra
 ```env
 TELEGRAM_BOT_TOKEN=...
 TELEGRAM_BOT_SECRET=...   # shared with API, min 16 chars
+TELEGRAM_WEBHOOK_SECRET=... # optional; defaults to TELEGRAM_BOT_SECRET for webhook verification
 API_BASE_URL=http://localhost:3001
 ```
 
@@ -51,14 +52,23 @@ https://<domain>/telegram/webhook
 ### 1. Configure env on API service
 
 Ensure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_SECRET`, and `API_BASE_URL` are set for the API container.
+Optionally set `TELEGRAM_WEBHOOK_SECRET` (otherwise `TELEGRAM_BOT_SECRET` is used).
 
 ### 2. Register webhook with Telegram
+
+Use the same secret value in `secret_token` that the API expects (`TELEGRAM_WEBHOOK_SECRET` or `TELEGRAM_BOT_SECRET`):
 
 ```bash
 curl -X POST "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook" \
   -H "content-type: application/json" \
-  -d '{"url":"https://<domain>/telegram/webhook","allowed_updates":["message","callback_query"]}'
+  -d '{
+    "url": "https://<domain>/telegram/webhook",
+    "secret_token": "<TELEGRAM_WEBHOOK_SECRET or TELEGRAM_BOT_SECRET>",
+    "allowed_updates": ["message", "callback_query"]
+  }'
 ```
+
+Telegram sends the secret in header `X-Telegram-Bot-Api-Secret-Token`. Requests without a valid secret are rejected with `401`.
 
 ### 3. Verify
 
@@ -104,5 +114,6 @@ Free text is sent to `POST /raw-inputs` and never creates a final event until dr
 
 - Active child is chosen from the latest redeemed link token (fallback: first child in family).
 - Draft notifications poll raw input for up to ~12 seconds; async worker latency may require a later message.
+- Pending input state is in-memory per bot process (not shared across replicas or restarts).
 - `/sleep_end` uses raw-input + draft flow when exact start time is unknown.
 - Unlinked users cannot create events or raw inputs.

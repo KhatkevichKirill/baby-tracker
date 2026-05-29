@@ -8,7 +8,7 @@ import { AuthModule } from "./auth.module";
 import { PrismaModule } from "./prisma.module";
 
 @Controller("telegram")
-class TelegramController {
+export class TelegramController {
   constructor(
     private readonly telegram: TelegramService,
     private readonly webhookService: TelegramWebhookService
@@ -40,7 +40,11 @@ class TelegramController {
 
   @Public()
   @Post("webhook")
-  webhook(@Body() body: unknown) {
+  webhook(
+    @Headers("x-telegram-bot-api-secret-token") webhookSecret: string | undefined,
+    @Body() body: unknown
+  ) {
+    this.telegram.assertWebhookSecret(webhookSecret);
     return this.webhookService.handleUpdate(body);
   }
 }
