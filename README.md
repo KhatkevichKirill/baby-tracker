@@ -5,7 +5,7 @@ Self-hosted семейный дневник ребенка с вводом че�
 ## Monorepo Layout
 
 - `apps/api` — NestJS API + Prisma
-- `apps/web` — веб-интерфейс (scaffold, Node HTTP server)
+- `apps/web` — Next.js веб-интерфейс (dashboard, timeline, drafts, analytics)
 - `apps/bot` — Telegraf bot
 - `apps/worker` — фоновые задачи (LLM, отчеты)
 - `packages/shared` — общие типы и zod-схемы
@@ -82,6 +82,13 @@ import { draftEventSchema } from "@baby-tracker/shared";
 ## Agent Handoff
 
 Готовые задачи для реализации по агентам лежат в `docs/agent-tasks/`.
+Git workflow для агентов: `docs/agent-tasks/git-workflow.md`.
+
+Remote проекта:
+
+```bash
+git@github.com:KhatkevichKirill/baby-tracker.git
+```
 
 Рекомендуемый порядок:
 
