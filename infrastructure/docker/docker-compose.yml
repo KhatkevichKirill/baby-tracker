@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: baby
+      POSTGRES_PASSWORD: baby
+      POSTGRES_DB: baby_tracker
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install && pnpm db:generate && pnpm --filter @baby-tracker/api dev"
+    env_file:
+      - ../../.env.example
+    environment:
+      DATABASE_URL: postgresql://baby:baby@postgres:5432/baby_tracker
+    volumes:
+      - ../../:/workspace
+    ports:
+      - "3001:3001"
+    depends_on:
+      - postgres
+
+  web:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @baby-tracker/web dev"
+    env_file:
+      - ../../.env.example
+    volumes:
+      - ../../:/workspace
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  worker:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @baby-tracker/worker dev"
+    env_file:
+      - ../../.env.example
+    environment:
+      DATABASE_URL: postgresql://baby:baby@postgres:5432/baby_tracker
+    volumes:
+      - ../../:/workspace
+    depends_on:
+      - postgres
+
+  bot:
+    image: node:22-alpine
+    working_dir: /workspace
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @baby-tracker/bot dev"
+    env_file:
+      - ../../.env.example
+    volumes:
+      - ../../:/workspace
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ../caddy/Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+      - api
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

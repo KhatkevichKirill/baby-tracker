@@ -1,0 +1,20 @@
+{
+  "name": "@baby-tracker/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "echo \"No tests yet\"",
+    "lint": "echo \"No lint configured\"",
+    "format": "echo \"No format configured\""
+  },
+  "dependencies": {
+    "@baby-tracker/shared": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.2"
+  }
+}

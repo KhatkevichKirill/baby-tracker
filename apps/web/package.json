@@ -1,0 +1,12 @@
+{
+  "name": "@baby-tracker/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node src/server.js",
+    "build": "echo \"Build web\"",
+    "test": "echo \"No tests yet\"",
+    "lint": "echo \"No lint configured\"",
+    "format": "echo \"No format configured\""
+  }
+}

@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CaregiverRole {
+  admin
+  editor
+  viewer
+}
+
+enum EventType {
+  feeding
+  sleep
+  diaper
+  symptom
+  medication
+  measurement
+  doctor_visit
+  lab_result
+  note
+}
+
+enum InputSource {
+  telegram
+  web
+  system
+}
+
+model Family {
+  id          String      @id @default(uuid())
+  name        String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  caregivers  Caregiver[]
+  children    Child[]
+  events      Event[]
+  rawInputs   RawInput[]
+  draftEvents DraftEvent[]
+  auditLogs   AuditLog[]
+}
+
+model User {
+  id             String      @id @default(uuid())
+  email          String      @unique
+  passwordHash   String
+  passwordSalt   String
+  displayName    String
+  telegramUserId String?     @unique
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  caregiverLinks Caregiver[]
+  eventsCreated  Event[]     @relation("EventCreatedBy")
+}
+
+model Caregiver {
+  id        String       @id @default(uuid())
+  familyId  String
+  userId    String
+  role      CaregiverRole
+  createdAt DateTime     @default(now())
+  family    Family       @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+}
+
+model Child {
+  id               String    @id @default(uuid())
+  familyId         String
+  name             String
+  dateOfBirth      DateTime
+  sexAtBirth       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  family           Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  events           Event[]
+  rawInputs        RawInput[]
+  draftEvents      DraftEvent[]
+  linkTokens       TelegramLinkToken[]
+  auditLogs        AuditLog[]
+}
+
+model TelegramLinkToken {
+  id        String   @id @default(uuid())
+  childId   String
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  child     Child    @relation(fields: [childId], references: [id], onDelete: Cascade)
+}
+
+model Event {
+  id             String            @id @default(uuid())
+  familyId       String
+  childId        String
+  createdById    String
+  rawInputId     String?
+  type           EventType
+  occurredAt     DateTime
+  source         InputSource
+  note           String?
+  detailsJson    Json?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  deletedAt      DateTime?
+  family         Family            @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  child          Child             @relation(fields: [childId], references: [id], onDelete: Cascade)
+  createdBy      User              @relation("EventCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  rawInput       RawInput?         @relation(fields: [rawInputId], references: [id], onDelete: SetNull)
+  feedingEvent   FeedingEvent?
+  sleepEvent     SleepEvent?
+  diaperEvent    DiaperEvent?
+  symptomEvent   SymptomEvent?
+  measurement    MeasurementEvent?
+  attachments    EventAttachment[]
+  fromDraftEvent DraftEvent?       @relation("DraftToEvent")
+
+  @@index([childId, occurredAt])
+  @@index([familyId, occurredAt])
+  @@index([rawInputId])
+}
+
+model FeedingEvent {
+  eventId      String   @id
+  kind         String
+  volumeMl     Float?
+  durationMin  Int?
+  breastSide   String?
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model SleepEvent {
+  eventId      String   @id
+  startAt      DateTime
+  endAt        DateTime?
+  quality      String?
+  location     String?
+  event        Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model DiaperEvent {
+  eventId       String   @id
+  kind          String
+  color         String?
+  consistency   String?
+  event         Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model SymptomEvent {
+  eventId         String   @id
+  symptomType     String
+  temperatureC    Float?
+  intensity       Int?
+  event           Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model MeasurementEvent {
+  eventId                String   @id
+  weightKg               Float?
+  heightCm               Float?
+  headCircumferenceCm    Float?
+  temperatureC           Float?
+  event                  Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+}
+
+model RawInput {
+  id             String      @id @default(uuid())
+  familyId       String
+  childId        String
+  source         InputSource
+  text           String
+  telegramChatId String?
+  createdAt      DateTime    @default(now())
+  family         Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  child          Child       @relation(fields: [childId], references: [id], onDelete: Cascade)
+  draftEvents    DraftEvent[]
+  events         Event[]
+
+  @@index([childId, createdAt])
+  @@index([familyId, createdAt])
+}
+
+model DraftEvent {
+  id              String      @id @default(uuid())
+  familyId        String
+  childId         String
+  rawInputId      String
+  type            EventType
+  occurredAt      DateTime?
+  detailsJson     Json
+  confidence      Float
+  sourceFragment  String
+  isConfirmed     Boolean     @default(false)
+  confirmedEventId String?    @unique
+  createdAt       DateTime    @default(now())
+  family          Family      @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  child           Child       @relation(fields: [childId], references: [id], onDelete: Cascade)
+  rawInput        RawInput    @relation(fields: [rawInputId], references: [id], onDelete: Cascade)
+  confirmedEvent  Event?      @relation("DraftToEvent", fields: [confirmedEventId], references: [id], onDelete: SetNull)
+
+  @@index([rawInputId])
+  @@index([childId, createdAt])
+}
+
+model EventAttachment {
+  id          String   @id @default(uuid())
+  eventId     String
+  familyId    String
+  childId     String
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String
+  createdAt   DateTime @default(now())
+  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@index([familyId, childId])
+  @@index([eventId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  familyId    String
+  childId     String?
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  family      Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  child       Child?   @relation(fields: [childId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, createdAt])
+  @@index([entityType, entityId])
+}
