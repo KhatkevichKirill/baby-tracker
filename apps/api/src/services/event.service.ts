@@ -27,6 +27,9 @@ export class EventService {
     input: Omit<CreateEventInput, "familyId"> & { createdById: string; rawInputId?: string }
   ) {
     const child = await this.familyAccess.assertChildAccess(familyIds, input.childId);
+    if (input.rawInputId) {
+      await this.familyAccess.assertRawInputForChild(familyIds, input.rawInputId, child);
+    }
     const payload: CreateEventInput & { createdById: string; rawInputId?: string } = {
       ...input,
       familyId: child.familyId

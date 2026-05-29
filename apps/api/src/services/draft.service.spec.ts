@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { DraftService } from "./draft.service";
 
 describe("DraftService", () => {
@@ -15,7 +15,7 @@ describe("DraftService", () => {
   const eventService = { createInTransaction: vi.fn() };
   const familyAccess = {
     assertChildAccess: vi.fn(),
-    assertRawInputAccess: vi.fn(),
+    assertRawInputForChild: vi.fn(),
     assertDraftAccess: vi.fn()
   };
 
@@ -28,9 +28,10 @@ describe("DraftService", () => {
       id: "11111111-1111-4111-8111-111111111111",
       familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     });
-    familyAccess.assertRawInputAccess.mockResolvedValue({
+    familyAccess.assertRawInputForChild.mockResolvedValue({
       id: "33333333-3333-4333-8333-333333333333",
-      familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      childId: "11111111-1111-4111-8111-111111111111"
     });
     familyAccess.assertDraftAccess.mockResolvedValue({
       id: "44444444-4444-4444-8444-444444444444",
@@ -49,6 +50,50 @@ describe("DraftService", () => {
       sourceFragment: "90 ml"
     });
     expect(prisma.draftEvent.create).toHaveBeenCalled();
+    expect(familyAccess.assertRawInputForChild).toHaveBeenCalledWith(
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      "33333333-3333-4333-8333-333333333333",
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+      }
+    );
+  });
+
+  it("rejects draft when rawInputId belongs to another family", async () => {
+    familyAccess.assertRawInputForChild.mockRejectedValue(
+      new ForbiddenException("No access to this family")
+    );
+
+    await expect(
+      service.create(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], {
+        childId: "11111111-1111-4111-8111-111111111111",
+        rawInputId: "99999999-9999-4999-8999-999999999999",
+        type: "feeding",
+        details: { kind: "formula", volumeMl: 90 },
+        confidence: 0.9,
+        sourceFragment: "90 ml"
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.draftEvent.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects draft when rawInputId belongs to a different child", async () => {
+    familyAccess.assertRawInputForChild.mockRejectedValue(
+      new BadRequestException("Raw input does not belong to this child")
+    );
+
+    await expect(
+      service.create(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], {
+        childId: "11111111-1111-4111-8111-111111111111",
+        rawInputId: "33333333-3333-4333-8333-333333333333",
+        type: "feeding",
+        details: { kind: "formula", volumeMl: 90 },
+        confidence: 0.9,
+        sourceFragment: "90 ml"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.draftEvent.create).not.toHaveBeenCalled();
   });
 
   it("confirm creates final event once", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { FamilyAccessService } from "./family-access.service";
 
 describe("FamilyAccessService", () => {
@@ -44,5 +44,46 @@ describe("FamilyAccessService", () => {
     await expect(service.assertEventAccess(["family-1"], "event-1")).rejects.toBeInstanceOf(
       ForbiddenException
     );
+  });
+
+  it("allows raw input when child and family match", async () => {
+    prisma.rawInput.findUnique.mockResolvedValue({
+      id: "raw-1",
+      familyId: "family-1",
+      childId: "child-1"
+    });
+    const rawInput = await service.assertRawInputForChild(["family-1"], "raw-1", {
+      id: "child-1",
+      familyId: "family-1"
+    });
+    expect(rawInput.id).toBe("raw-1");
+  });
+
+  it("blocks raw input from another family", async () => {
+    prisma.rawInput.findUnique.mockResolvedValue({
+      id: "raw-1",
+      familyId: "family-2",
+      childId: "child-1"
+    });
+    await expect(
+      service.assertRawInputForChild(["family-1"], "raw-1", {
+        id: "child-1",
+        familyId: "family-1"
+      })
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("blocks raw input linked to a different child", async () => {
+    prisma.rawInput.findUnique.mockResolvedValue({
+      id: "raw-1",
+      familyId: "family-1",
+      childId: "child-2"
+    });
+    await expect(
+      service.assertRawInputForChild(["family-1"], "raw-1", {
+        id: "child-1",
+        familyId: "family-1"
+      })
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

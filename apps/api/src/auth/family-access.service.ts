@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../services/prisma.service";
 
 @Injectable()
@@ -57,6 +57,21 @@ export class FamilyAccessService {
       throw new NotFoundException("Raw input not found");
     }
     this.assertFamilyAccess(familyIds, rawInput.familyId);
+    return rawInput;
+  }
+
+  async assertRawInputForChild(
+    familyIds: string[],
+    rawInputId: string,
+    child: { id: string; familyId: string }
+  ) {
+    const rawInput = await this.assertRawInputAccess(familyIds, rawInputId);
+    if (rawInput.familyId !== child.familyId) {
+      throw new ForbiddenException("Raw input does not belong to this family");
+    }
+    if (rawInput.childId !== child.id) {
+      throw new BadRequestException("Raw input does not belong to this child");
+    }
     return rawInput;
   }
 

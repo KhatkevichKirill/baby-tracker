@@ -22,7 +22,7 @@ export class DraftService {
   async create(familyIds: string[], input: unknown) {
     const payload = createDraftBodySchema.parse(input);
     const child = await this.familyAccess.assertChildAccess(familyIds, payload.childId);
-    await this.familyAccess.assertRawInputAccess(familyIds, payload.rawInputId);
+    await this.familyAccess.assertRawInputForChild(familyIds, payload.rawInputId, child);
 
     const draft = draftEventSchema.parse({
       type: payload.type,
