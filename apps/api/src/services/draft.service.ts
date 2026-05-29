@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { draftEventSchema, type DraftEvent } from "@baby-tracker/shared";
 import { PrismaService } from "./prisma.service";
 import { EventService } from "./event.service";
+import { eventInclude } from "../repositories/event.repository";
 
 @Injectable()
 export class DraftService {
@@ -31,50 +32,51 @@ export class DraftService {
   }
 
   async confirm(id: string, createdById: string) {
-    const draft = await this.prisma.draftEvent.findUnique({
-      where: { id },
-      include: { rawInput: true }
-    });
-    if (!draft) throw new NotFoundException("Draft not found");
-    if (draft.isConfirmed && draft.confirmedEventId) {
-      return this.prisma.event.findUnique({ where: { id: draft.confirmedEventId } });
-    }
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "DraftEvent" WHERE id = ${id} FOR UPDATE`;
 
-    const occurredAt = draft.occurredAt ?? draft.createdAt;
-    const event = await this.eventService.create({
-      familyId: draft.familyId,
-      childId: draft.childId,
-      createdById,
-      rawInputId: draft.rawInputId,
-      type: draft.type,
-      occurredAt: occurredAt.toISOString(),
-      source: draft.rawInput.source,
-      details: draft.detailsJson as Record<string, unknown>,
-      note: draft.sourceFragment
-    });
+      const draft = await tx.draftEvent.findUnique({
+        where: { id },
+        include: { rawInput: true }
+      });
+      if (!draft) throw new NotFoundException("Draft not found");
 
-    await this.prisma.draftEvent.update({
-      where: { id },
-      data: {
-        isConfirmed: true,
-        confirmedEventId: event?.id
+      if (draft.isConfirmed && draft.confirmedEventId) {
+        return tx.event.findUnique({
+          where: { id: draft.confirmedEventId },
+          include: eventInclude
+        });
       }
-    });
 
-    if (!event?.id) return event;
+      const occurredAt = draft.occurredAt ?? draft.createdAt;
+      const event = await this.eventService.createInTransaction(tx, {
+        familyId: draft.familyId,
+        childId: draft.childId,
+        createdById,
+        rawInputId: draft.rawInputId,
+        type: draft.type,
+        occurredAt: occurredAt.toISOString(),
+        source: draft.rawInput.source,
+        details: draft.detailsJson as Record<string, unknown>,
+        note: draft.sourceFragment
+      });
 
-    return this.prisma.event.findUnique({
-      where: { id: event.id },
-      include: {
-        feedingEvent: true,
-        sleepEvent: true,
-        diaperEvent: true,
-        symptomEvent: true,
-        measurement: true,
-        attachments: true,
-        rawInput: true,
-        fromDraftEvent: true
+      if (!event?.id) {
+        throw new Error("Failed to create event from draft");
       }
+
+      await tx.draftEvent.update({
+        where: { id },
+        data: {
+          isConfirmed: true,
+          confirmedEventId: event.id
+        }
+      });
+
+      return tx.event.findUnique({
+        where: { id: event.id },
+        include: eventInclude
+      });
     });
   }
 }

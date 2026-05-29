@@ -6,6 +6,23 @@ import { DraftService } from "../src/services/draft.service";
 
 const prisma = new PrismaClient();
 
+async function assertDraftConfirmLinks(
+  event: {
+    id: string;
+    rawInputId: string | null;
+    fromDraftEvent: { id: string } | null;
+  } | null,
+  draftId: string,
+  rawInputId: string
+) {
+  if (!event?.rawInputId || event.rawInputId !== rawInputId) {
+    throw new Error("Confirmed event must keep rawInput link");
+  }
+  if (!event.fromDraftEvent || event.fromDraftEvent.id !== draftId) {
+    throw new Error("Confirmed event must link back to draft");
+  }
+}
+
 async function main() {
   const events = new EventService(new EventRepository(prisma as never), new AuditRepository(prisma as never));
   const drafts = new DraftService(prisma as never, events);
@@ -34,11 +51,49 @@ async function main() {
   });
 
   const confirmed = await drafts.confirm(draft.id, user.id);
-  if (!confirmed?.rawInputId || confirmed.rawInputId !== rawInput.id) {
-    throw new Error("Confirmed event must keep rawInput link");
+  await assertDraftConfirmLinks(confirmed, draft.id, rawInput.id);
+
+  const repeated = await drafts.confirm(draft.id, user.id);
+  if (!repeated || repeated.id !== confirmed!.id) {
+    throw new Error("Repeated draft.confirm must return the same final event");
   }
-  if (!confirmed.fromDraftEvent || confirmed.fromDraftEvent.id !== draft.id) {
-    throw new Error("Confirmed event must link back to draft");
+
+  const concurrentRawInput = await prisma.rawInput.create({
+    data: {
+      familyId: child.familyId,
+      childId: child.id,
+      source: "telegram",
+      text: "Concurrent confirm test"
+    }
+  });
+
+  const concurrentDraft = await drafts.create({
+    familyId: child.familyId,
+    childId: child.id,
+    rawInputId: concurrentRawInput.id,
+    type: "feeding",
+    occurredAt: "2026-05-29T11:00:00.000Z",
+    details: { kind: "formula", volumeMl: 90 },
+    confidence: 0.88,
+    sourceFragment: "90 мл"
+  });
+
+  const [firstConcurrent, secondConcurrent] = await Promise.all([
+    drafts.confirm(concurrentDraft.id, user.id),
+    drafts.confirm(concurrentDraft.id, user.id)
+  ]);
+
+  if (!firstConcurrent || !secondConcurrent || firstConcurrent.id !== secondConcurrent.id) {
+    throw new Error("Concurrent draft.confirm calls must return the same final event");
+  }
+
+  await assertDraftConfirmLinks(firstConcurrent, concurrentDraft.id, concurrentRawInput.id);
+
+  const linkedEventCount = await prisma.event.count({
+    where: { fromDraftEvent: { id: concurrentDraft.id } }
+  });
+  if (linkedEventCount !== 1) {
+    throw new Error(`Expected exactly one final event for draft, got ${linkedEventCount}`);
   }
 
   const manual = await events.create({
@@ -61,12 +116,31 @@ async function main() {
   });
   if (updated?.note !== "Updated nap") throw new Error("Update failed");
 
+  const feeding = await events.create({
+    familyId: child.familyId,
+    childId: child.id,
+    createdById: user.id,
+    type: "feeding",
+    occurredAt: "2026-05-29T13:00:00.000Z",
+    source: "web",
+    details: { kind: "formula", volumeMl: 100 }
+  });
+
+  const mergedUpdate = await events.update(feeding!.id, {
+    actorUserId: user.id,
+    details: { volumeMl: 150 }
+  });
+  const mergedDetails = mergedUpdate?.detailsJson as Record<string, unknown> | null;
+  if (mergedDetails?.kind !== "formula" || mergedDetails?.volumeMl !== 150) {
+    throw new Error("Partial details update must merge with existing detailsJson");
+  }
+
   await events.remove(manual!.id, user.id);
   const deleted = await events.getById(manual!.id).catch(() => null);
   if (deleted) throw new Error("Soft delete should hide event from getById");
 
   const timeline = await events.timeline(child.id);
-  if (timeline.length < 1) throw new Error("Timeline should contain confirmed event");
+  if (timeline.length < 2) throw new Error("Timeline should contain confirmed events");
   for (let i = 1; i < timeline.length; i += 1) {
     if (timeline[i - 1].occurredAt < timeline[i].occurredAt) {
       throw new Error("Timeline must be sorted by occurredAt desc");
@@ -79,7 +153,8 @@ async function main() {
   console.log("Domain model verification passed", {
     timelineCount: timeline.length,
     auditCount,
-    confirmedEventId: confirmed.id
+    confirmedEventId: confirmed!.id,
+    concurrentEventId: firstConcurrent.id
   });
 }
 

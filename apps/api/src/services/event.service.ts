@@ -21,40 +21,45 @@ export class EventService {
   ) {}
 
   async create(input: CreateEventInput & { createdById: string; rawInputId?: string }) {
+    return this.events.transaction((tx) => this.createInTransaction(tx, input));
+  }
+
+  async createInTransaction(
+    tx: Prisma.TransactionClient,
+    input: CreateEventInput & { createdById: string; rawInputId?: string }
+  ) {
     const event = createEventInputSchema.parse(input);
 
-    return this.events.transaction(async (tx) => {
-      const created = await this.events.create(
-        {
-          family: { connect: { id: event.familyId } },
-          child: { connect: { id: event.childId } },
-          createdBy: { connect: { id: input.createdById } },
-          rawInput: input.rawInputId ? { connect: { id: input.rawInputId } } : undefined,
-          type: event.type,
-          occurredAt: new Date(event.occurredAt),
-          source: event.source,
-          note: event.note,
-          detailsJson: event.details
-        },
-        tx
-      );
+    const created = await this.events.create(
+      {
+        family: { connect: { id: event.familyId } },
+        child: { connect: { id: event.childId } },
+        createdBy: { connect: { id: input.createdById } },
+        rawInput: input.rawInputId ? { connect: { id: input.rawInputId } } : undefined,
+        type: event.type,
+        occurredAt: new Date(event.occurredAt),
+        source: event.source,
+        note: event.note,
+        detailsJson: event.details
+      },
+      tx
+    );
 
-      await this.createSubtype(tx, created.id, event);
+    await this.createSubtype(tx, created.id, event);
 
-      await this.audit.log(
-        {
-          familyId: event.familyId,
-          childId: event.childId,
-          actorUserId: input.createdById,
-          action: "create",
-          entityType: "event",
-          entityId: created.id
-        },
-        tx
-      );
+    await this.audit.log(
+      {
+        familyId: event.familyId,
+        childId: event.childId,
+        actorUserId: input.createdById,
+        action: "create",
+        entityType: "event",
+        entityId: created.id
+      },
+      tx
+    );
 
-      return this.events.findWithRelations(created.id, tx);
-    });
+    return this.events.findWithRelations(created.id, tx);
   }
 
   async getById(id: string) {
@@ -81,12 +86,18 @@ export class EventService {
       });
       if (!existing) throw new NotFoundException("Event not found");
 
+      const existingDetails =
+        existing.detailsJson && typeof existing.detailsJson === "object" && !Array.isArray(existing.detailsJson)
+          ? (existing.detailsJson as Record<string, unknown>)
+          : {};
+      const mergedDetails = patch.details ? { ...existingDetails, ...patch.details } : undefined;
+
       await this.events.update(
         id,
         {
           occurredAt: patch.occurredAt ? new Date(patch.occurredAt) : undefined,
           note: patch.note,
-          detailsJson: patch.details ?? undefined
+          detailsJson: mergedDetails
         },
         tx
       );
