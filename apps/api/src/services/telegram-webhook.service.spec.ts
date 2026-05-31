@@ -1,8 +1,72 @@
-import { UnauthorizedException } from "@nestjs/common";
+import { UnauthorizedException, BadRequestException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TelegramController } from "../modules/telegram.module";
 import { TelegramService } from "./telegram.service";
 import { TelegramWebhookService } from "./telegram-webhook.service";
+
+describe("Telegram link redemption security", () => {
+  const telegram = {
+    assertWebhookSecret: vi.fn(),
+    createLinkToken: vi.fn(),
+    redeemLink: vi.fn(),
+    getContext: vi.fn(),
+    assertBotSecret: vi.fn()
+  };
+  const webhookService = {
+    handleUpdate: vi.fn()
+  };
+  const controller = new TelegramController(
+    telegram as unknown as TelegramService,
+    webhookService as unknown as TelegramWebhookService
+  );
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    telegram.redeemLink.mockResolvedValue({ token: "jwt", childId: "child-1" });
+  });
+
+  it("rejects link redemption without bot secret", () => {
+    telegram.assertBotSecret.mockImplementation(() => {
+      throw new UnauthorizedException("Invalid bot secret");
+    });
+
+    expect(() => controller.redeemLink(undefined, { code: "abc", telegramUserId: "1" })).toThrow(
+      "Invalid bot secret"
+    );
+    expect(telegram.redeemLink).not.toHaveBeenCalled();
+  });
+
+  it("rejects link redemption with wrong bot secret", () => {
+    telegram.assertBotSecret.mockImplementation((secret?: string) => {
+      if (secret !== "expected-bot-secret") {
+        throw new UnauthorizedException("Invalid bot secret");
+      }
+    });
+
+    expect(() =>
+      controller.redeemLink("wrong-secret", { code: "abc", telegramUserId: "1" })
+    ).toThrow("Invalid bot secret");
+    expect(telegram.redeemLink).not.toHaveBeenCalled();
+  });
+
+  it("accepts link redemption with valid bot secret", async () => {
+    telegram.assertBotSecret.mockImplementation((secret?: string) => {
+      if (secret !== "expected-bot-secret") {
+        throw new UnauthorizedException("Invalid bot secret");
+      }
+    });
+
+    const body = {
+      code: "0123456789ABCDEF0123456789ABCDEF",
+      telegramUserId: "12345"
+    };
+    await expect(controller.redeemLink("expected-bot-secret", body)).resolves.toEqual({
+      token: "jwt",
+      childId: "child-1"
+    });
+    expect(telegram.redeemLink).toHaveBeenCalledWith(body);
+  });
+});
 
 describe("Telegram webhook security", () => {
   const telegram = {

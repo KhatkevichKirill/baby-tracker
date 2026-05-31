@@ -21,7 +21,11 @@ export class TelegramController {
 
   @Public()
   @Post("link")
-  redeemLink(@Body() body: unknown) {
+  redeemLink(
+    @Headers("x-bot-secret") botSecret: string | undefined,
+    @Body() body: unknown
+  ) {
+    this.telegram.assertBotSecret(botSecret);
     return this.telegram.redeemLink(body);
   }
 

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma, type EventType } from "@prisma/client";
 import {
   createEventInputSchema,
@@ -30,10 +30,12 @@ export class EventService {
     familyIds: string[],
     input: Omit<CreateEventInput, "familyId"> & { createdById: string; rawInputId?: string }
   ) {
-    const child = await this.familyAccess.assertChildAccess(familyIds, input.childId);
     if (input.rawInputId) {
-      await this.familyAccess.assertRawInputForChild(familyIds, input.rawInputId, child);
+      throw new BadRequestException(
+        "Events linked to raw input must be created through draft confirmation"
+      );
     }
+    const child = await this.familyAccess.assertChildAccess(familyIds, input.childId);
     const payload: CreateEventInput & { createdById: string; rawInputId?: string } = {
       ...input,
       familyId: child.familyId
