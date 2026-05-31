@@ -68,8 +68,104 @@ Structured event types (`feeding`, `sleep`, `diaper`, `symptom`, `measurement`) 
 
 ## Analytics
 
-- `GET /analytics/daily/:childId`
-- `GET /analytics/weekly/:childId`
+All analytics responses include:
+
+```json
+{
+  "disclaimer": "Observational summary from recorded events only. Not medical advice or diagnosis."
+}
+```
+
+Analytics is built only from confirmed structured events (`deletedAt = null`). Drafts and raw inputs are excluded. Sleep duration uses overlap with the requested day/week window, not only `occurredAt`.
+
+### Daily summary
+
+- `GET /analytics/daily/:childId?date=YYYY-MM-DD&format=json|text`
+- `date` defaults to today (UTC day boundary)
+- `format=text` returns plain-text summary for Telegram (`Content-Type: text/plain`)
+
+#### Daily JSON response
+
+```json
+{
+  "childId": "...",
+  "date": "2026-05-30",
+  "disclaimer": "Observational summary from recorded events only. Not medical advice or diagnosis.",
+  "feeding": {
+    "count": 5,
+    "totalVolumeMl": 420,
+    "totalDurationMin": 45,
+    "byKind": { "breast": 3, "formula": 2 }
+  },
+  "sleep": {
+    "sessionCount": 3,
+    "totalMinutes": 780,
+    "ongoingSessions": 1
+  },
+  "diaper": {
+    "count": 6,
+    "byKind": { "urine": 4, "stool": 1, "mixed": 1 }
+  },
+  "symptoms": {
+    "count": 1,
+    "withTemperature": 1,
+    "temperatureReadingsC": [37.4],
+    "types": ["cough"]
+  },
+  "measurements": {
+    "count": 1,
+    "weightKg": 4.2,
+    "temperatureC": null
+  }
+}
+```
+
+Formulas:
+- `feeding.totalVolumeMl` / `totalDurationMin` are `null` when no events recorded that field (missing optional values are not treated as zero).
+- `sleep.totalMinutes` sums clipped minutes per session: `min(endAt, dayEnd) - max(startAt, dayStart)`; open-ended sleep uses current time as provisional end.
+- `symptoms.temperatureReadingsC` lists recorded values only — no thresholds or diagnosis.
+
+### Weekly trends
+
+- `GET /analytics/weekly/:childId?date=YYYY-MM-DD`
+- `date` is the last day of the 7-day window (inclusive), default today.
+
+#### Weekly JSON response
+
+```json
+{
+  "childId": "...",
+  "from": "2026-05-24",
+  "to": "2026-05-30",
+  "disclaimer": "Observational summary from recorded events only. Not medical advice or diagnosis.",
+  "days": [
+    {
+      "date": "2026-05-24",
+      "feeding": { "count": 5, "totalVolumeMl": 500, "totalDurationMin": 60 },
+      "sleep": { "sessionCount": 2, "totalMinutes": 600 },
+      "diaper": { "count": 4 },
+      "weightKg": null,
+      "temperatureC": 36.6
+    }
+  ],
+  "totals": {
+    "feeding": { "count": 35, "totalVolumeMl": 3500, "totalDurationMin": 420, "byKind": {} },
+    "sleep": { "sessionCount": 14, "totalMinutes": 4200 },
+    "diaper": { "count": 28, "byKind": {} }
+  },
+  "averages": {
+    "feedingCountPerDay": 5,
+    "sleepMinutesPerDay": 600,
+    "diaperCountPerDay": 4
+  },
+  "weight": { "startKg": 4.1, "endKg": 4.15, "changeKg": 0.05 },
+  "temperature": { "minC": 36.4, "maxC": 37.2, "readingCount": 3 }
+}
+```
+
+### Telegram `/summary`
+
+Linked bot session calls `GET /analytics/daily/:childId?format=text` with `Authorization: Bearer <session.token>` from `/telegram/link` or `/telegram/context`.
 
 ## Files
 

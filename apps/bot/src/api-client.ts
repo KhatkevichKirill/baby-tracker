@@ -113,6 +113,56 @@ export class ApiClient {
     });
   }
 
+  async getDailySummaryText(session: BotSession, date?: string) {
+    const params = new URLSearchParams({ format: "text" });
+    if (date) {
+      params.set("date", date);
+    }
+    return this.requestText(`/analytics/daily/${session.childId}?${params.toString()}`, {
+      auth: session.token
+    });
+  }
+
+  private async requestText(
+    path: string,
+    init: RequestInit & { auth?: string } = {}
+  ): Promise<{ ok: true; data: string } | { ok: false; message: string }> {
+    const headers: Record<string, string> = {
+      ...(init.headers as Record<string, string> | undefined)
+    };
+    if (init.auth) {
+      headers.authorization = `Bearer ${init.auth}`;
+    }
+
+    try {
+      const response = await fetch(`${this.options.apiBaseUrl}${path}`, {
+        ...init,
+        headers
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        try {
+          const payload = JSON.parse(body) as ApiError;
+          return {
+            ok: false,
+            message: payload.error?.message ?? `Request failed (${response.status})`
+          };
+        } catch {
+          return {
+            ok: false,
+            message: body || `Request failed (${response.status})`
+          };
+        }
+      }
+      return { ok: true, data: body };
+    } catch (error) {
+      return {
+        ok: false,
+        message: error instanceof Error ? error.message : "Network error"
+      };
+    }
+  }
+
   private async request<T>(
     path: string,
     init: RequestInit & { auth?: string } = {}

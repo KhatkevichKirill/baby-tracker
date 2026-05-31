@@ -14,7 +14,8 @@ export const mainMenuKeyboard = (): { reply_markup: InlineKeyboardMarkup } =>
     [
       Markup.button.callback("🌡 Температура", "cmd:temp"),
       Markup.button.callback("📝 Заметка", "cmd:note")
-    ]
+    ],
+    [Markup.button.callback("📊 Сводка за день", "cmd:summary")]
   ]);
 
 export const draftActionsKeyboard = (draftId: string): { reply_markup: InlineKeyboardMarkup } =>

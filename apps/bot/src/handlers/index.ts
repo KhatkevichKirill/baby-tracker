@@ -8,6 +8,7 @@ import {
 } from "../pending-actions";
 import {
   createStructuredEvent,
+  sendDailySummary,
   submitRawInput,
   welcomeText
 } from "./actions";
@@ -127,6 +128,10 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
     );
   });
 
+  bot.command("summary", async (ctx) => {
+    await sendDailySummary(api, ctx.state.session!, (text) => ctx.reply(text));
+  });
+
   bot.action(/^cmd:(.+)$/, async (ctx) => {
     const telegramUserId = telegramUserIdFrom(ctx);
     const action = ctx.match[1];
@@ -168,6 +173,10 @@ export function registerHandlers(bot: Telegraf<BotContext>, api: ApiClient) {
     if (action === "note") {
       setPendingAction(telegramUserId, { type: "note" });
       await ctx.reply("Отправьте текст заметки следующим сообщением.");
+      return;
+    }
+    if (action === "summary") {
+      await sendDailySummary(api, ctx.state.session!, (text) => ctx.reply(text));
     }
   });
 

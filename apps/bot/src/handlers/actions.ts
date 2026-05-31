@@ -82,6 +82,20 @@ export async function createStructuredEvent(
   await reply(note ?? "Событие сохранено.");
 }
 
+export async function sendDailySummary(
+  api: ApiClient,
+  session: BotSession,
+  reply: (text: string) => Promise<unknown>,
+  date?: string
+) {
+  const summary = await api.getDailySummaryText(session, date);
+  if (!summary.ok) {
+    await reply(formatApiError(summary.message));
+    return;
+  }
+  await reply(summary.data);
+}
+
 export function welcomeText() {
   return [
     "Baby Tracker — семейный дневник.",

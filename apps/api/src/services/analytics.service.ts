@@ -1,6 +1,24 @@
 import { Injectable } from "@nestjs/common";
+import {
+  aggregateDailySummary,
+  aggregateWeeklyTrends,
+  formatDailySummaryText,
+  parseDayWindow,
+  parseWeekWindow,
+  type AnalyticsEventRecord,
+  type DailySummary,
+  type WeeklyTrends
+} from "@baby-tracker/shared";
 import { FamilyAccessService } from "../auth/family-access.service";
 import { PrismaService } from "./prisma.service";
+
+const analyticsInclude = {
+  feedingEvent: true,
+  sleepEvent: true,
+  diaperEvent: true,
+  symptomEvent: true,
+  measurement: true
+} as const;
 
 @Injectable()
 export class AnalyticsService {
@@ -9,72 +27,104 @@ export class AnalyticsService {
     private readonly familyAccess: FamilyAccessService
   ) {}
 
-  async daily(familyIds: string[], childId: string, date = new Date()) {
+  async daily(
+    familyIds: string[],
+    childId: string,
+    dateInput?: string
+  ): Promise<DailySummary> {
     await this.familyAccess.assertChildAccess(familyIds, childId);
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-
-    const events = await this.prisma.event.findMany({
-      where: {
-        childId,
-        deletedAt: null,
-        occurredAt: { gte: start, lt: end }
-      },
-      include: {
-        feedingEvent: true,
-        sleepEvent: true,
-        diaperEvent: true,
-        symptomEvent: true,
-        measurement: true
-      }
-    });
-
-    const feedingVolumeMl = events.reduce(
-      (sum, event) => sum + (event.feedingEvent?.volumeMl ?? 0),
-      0
-    );
-    const sleepMinutes = events.reduce((sum, event) => {
-      if (!event.sleepEvent?.endAt) return sum;
-      return sum + Math.max(0, event.sleepEvent.endAt.getTime() - event.sleepEvent.startAt.getTime()) / 60000;
-    }, 0);
-
-    return {
-      childId,
-      date: start.toISOString().slice(0, 10),
-      counts: {
-        feeding: events.filter((event) => event.type === "feeding").length,
-        sleep: events.filter((event) => event.type === "sleep").length,
-        diaper: events.filter((event) => event.type === "diaper").length,
-        symptom: events.filter((event) => event.type === "symptom").length
-      },
-      feedingVolumeMl,
-      sleepMinutes
-    };
+    const window = parseDayWindow(dateInput ?? new Date());
+    const events = await this.loadEventsForDaily(childId, window);
+    return aggregateDailySummary(childId, window, events);
   }
 
-  async weekly(familyIds: string[], childId: string, date = new Date()) {
+  async dailyText(familyIds: string[], childId: string, dateInput?: string): Promise<string> {
+    const summary = await this.daily(familyIds, childId, dateInput);
+    return formatDailySummaryText(summary);
+  }
+
+  async weekly(
+    familyIds: string[],
+    childId: string,
+    dateInput?: string
+  ): Promise<WeeklyTrends> {
     await this.familyAccess.assertChildAccess(familyIds, childId);
-    const end = new Date(date);
-    const start = new Date(end);
-    start.setDate(start.getDate() - 7);
+    const week = parseWeekWindow(dateInput ?? new Date());
+    const events = await this.loadEventsForWeekly(childId, week);
+    return aggregateWeeklyTrends(childId, week, events);
+  }
 
-    const events = await this.prisma.event.groupBy({
-      by: ["type"],
-      where: {
-        childId,
-        deletedAt: null,
-        occurredAt: { gte: start, lte: end }
-      },
-      _count: true
-    });
+  private async loadEventsForDaily(
+    childId: string,
+    window: ReturnType<typeof parseDayWindow>
+  ): Promise<AnalyticsEventRecord[]> {
+    const [nonSleepEvents, sleepEvents] = await Promise.all([
+      this.prisma.event.findMany({
+        where: {
+          childId,
+          deletedAt: null,
+          type: { not: "sleep" },
+          occurredAt: { gte: window.start, lt: window.end }
+        },
+        include: analyticsInclude
+      }),
+      this.prisma.event.findMany({
+        where: {
+          childId,
+          deletedAt: null,
+          type: "sleep",
+          sleepEvent: {
+            is: {
+              startAt: { lt: window.end },
+              OR: [{ endAt: null }, { endAt: { gt: window.start } }]
+            }
+          }
+        },
+        include: analyticsInclude
+      })
+    ]);
 
-    return {
-      childId,
-      from: start.toISOString(),
-      to: end.toISOString(),
-      countsByType: events.map((item) => ({ type: item.type, count: item._count }))
-    };
+    const byId = new Map<string, AnalyticsEventRecord>();
+    for (const event of [...nonSleepEvents, ...sleepEvents]) {
+      byId.set(event.id, event as AnalyticsEventRecord);
+    }
+    return [...byId.values()];
+  }
+
+  private async loadEventsForWeekly(
+    childId: string,
+    week: ReturnType<typeof parseWeekWindow>
+  ): Promise<AnalyticsEventRecord[]> {
+    const [nonSleepEvents, sleepEvents] = await Promise.all([
+      this.prisma.event.findMany({
+        where: {
+          childId,
+          deletedAt: null,
+          type: { not: "sleep" },
+          occurredAt: { gte: week.from.start, lt: week.to.end }
+        },
+        include: analyticsInclude
+      }),
+      this.prisma.event.findMany({
+        where: {
+          childId,
+          deletedAt: null,
+          type: "sleep",
+          sleepEvent: {
+            is: {
+              startAt: { lt: week.to.end },
+              OR: [{ endAt: null }, { endAt: { gt: week.from.start } }]
+            }
+          }
+        },
+        include: analyticsInclude
+      })
+    ]);
+
+    const byId = new Map<string, AnalyticsEventRecord>();
+    for (const event of [...nonSleepEvents, ...sleepEvents]) {
+      byId.set(event.id, event as AnalyticsEventRecord);
+    }
+    return [...byId.values()];
   }
 }
