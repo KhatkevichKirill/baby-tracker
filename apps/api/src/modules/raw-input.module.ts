@@ -1,33 +1,27 @@
 import { Body, Controller, Get, Module, Param, Post } from "@nestjs/common";
-import { PrismaService } from "../services/prisma.service";
-
-type CreateRawInputDto = {
-  familyId: string;
-  childId: string;
-  source: "telegram" | "web" | "system";
-  text: string;
-  telegramChatId?: string;
-};
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { RequestUser } from "../auth/auth.types";
+import { RawInputService } from "../services/raw-input.service";
+import { AuthModule } from "./auth.module";
 
 @Controller("raw-inputs")
 class RawInputController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly rawInputs: RawInputService) {}
 
   @Post()
-  create(@Body() payload: CreateRawInputDto) {
-    return this.prisma.rawInput.create({ data: payload });
+  create(@CurrentUser() user: RequestUser, @Body() body: unknown) {
+    return this.rawInputs.create(user.familyIds, body);
   }
 
   @Get(":id")
-  get(@Param("id") id: string) {
-    return this.prisma.rawInput.findUnique({
-      where: { id },
-      include: { draftEvents: true, events: true }
-    });
+  get(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.rawInputs.getById(user.familyIds, id);
   }
 }
 
 @Module({
-  controllers: [RawInputController]
+  imports: [AuthModule],
+  controllers: [RawInputController],
+  providers: [RawInputService]
 })
 export class RawInputModule {}

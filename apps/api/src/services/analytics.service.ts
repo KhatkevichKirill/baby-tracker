@@ -1,11 +1,16 @@
 import { Injectable } from "@nestjs/common";
+import { FamilyAccessService } from "../auth/family-access.service";
 import { PrismaService } from "./prisma.service";
 
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly familyAccess: FamilyAccessService
+  ) {}
 
-  async daily(childId: string, date = new Date()) {
+  async daily(familyIds: string[], childId: string, date = new Date()) {
+    await this.familyAccess.assertChildAccess(familyIds, childId);
     const start = new Date(date);
     start.setHours(0, 0, 0, 0);
     const end = new Date(start);
@@ -49,7 +54,8 @@ export class AnalyticsService {
     };
   }
 
-  async weekly(childId: string, date = new Date()) {
+  async weekly(familyIds: string[], childId: string, date = new Date()) {
+    await this.familyAccess.assertChildAccess(familyIds, childId);
     const end = new Date(date);
     const start = new Date(end);
     start.setDate(start.getDate() - 7);

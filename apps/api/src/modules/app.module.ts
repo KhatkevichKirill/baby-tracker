@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { AuthGuard } from "../auth/auth.guard";
 import { AuthModule } from "./auth.module";
 import { ChildModule } from "./child.module";
 import { EventModule } from "./event.module";
@@ -14,8 +16,8 @@ import { RawInputModule } from "./raw-input.module";
 @Module({
   imports: [
     PrismaModule,
-    HealthModule,
     AuthModule,
+    HealthModule,
     RawInputModule,
     ChildModule,
     EventModule,
@@ -24,6 +26,12 @@ import { RawInputModule } from "./raw-input.module";
     FileModule,
     TelegramModule,
     ExportModule
+  ],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: AuthGuard
+    }
   ]
 })
 export class AppModule {}

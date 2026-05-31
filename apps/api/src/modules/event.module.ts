@@ -1,66 +1,72 @@
+import { Body, Controller, Delete, Get, Module, Param, Patch, Post, Query } from "@nestjs/common";
+import { z } from "zod";
 import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Module,
-  Param,
-  Patch,
-  Post,
-  Query
-} from "@nestjs/common";
-import { type CreateEventInput } from "@baby-tracker/shared";
+  createEventInputSchema,
+  updateEventInputSchema
+} from "@baby-tracker/shared";
+import { CurrentUser } from "../auth/current-user.decorator";
+import type { RequestUser } from "../auth/auth.types";
+import { zodPipe } from "../common/pipes/zod-validation.pipe";
 import { AuditRepository } from "../repositories/audit.repository";
 import { EventRepository } from "../repositories/event.repository";
 import { EventService } from "../services/event.service";
+import { AuthModule } from "./auth.module";
 
-type CreateEventDto = CreateEventInput & {
-  createdById: string;
-  rawInputId?: string;
-};
+const createEventBodySchema = createEventInputSchema.omit({ familyId: true }).extend({
+  rawInputId: z.string().uuid().optional()
+});
 
-type UpdateEventDto = {
-  occurredAt?: string;
-  note?: string | null;
-  details?: Record<string, unknown>;
-  actorUserId: string;
-};
-
-type DeleteEventDto = {
-  actorUserId: string;
-};
+const updateEventBodySchema = updateEventInputSchema;
 
 @Controller("events")
 class EventController {
   constructor(private readonly events: EventService) {}
 
   @Post()
-  create(@Body() payload: CreateEventDto) {
-    return this.events.create(payload);
+  create(
+    @CurrentUser() user: RequestUser,
+    @Body(zodPipe(createEventBodySchema)) body: z.infer<typeof createEventBodySchema>
+  ) {
+    return this.events.create(user.familyIds, {
+      ...body,
+      createdById: user.userId
+    });
   }
 
   @Get("timeline/:childId")
-  timeline(@Param("childId") childId: string, @Query("type") type?: string) {
-    return this.events.timeline(childId, type);
+  timeline(
+    @CurrentUser() user: RequestUser,
+    @Param("childId") childId: string,
+    @Query("type") type?: string
+  ) {
+    return this.events.timeline(user.familyIds, childId, type);
   }
 
   @Get(":id")
-  getById(@Param("id") id: string) {
-    return this.events.getById(id);
+  getById(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.events.getById(user.familyIds, id);
   }
 
   @Patch(":id")
-  update(@Param("id") id: string, @Body() payload: UpdateEventDto) {
-    return this.events.update(id, payload);
+  update(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string,
+    @Body(zodPipe(updateEventBodySchema)) body: z.infer<typeof updateEventBodySchema>
+  ) {
+    return this.events.update(user.familyIds, id, {
+      ...body,
+      actorUserId: user.userId
+    });
   }
 
   @Delete(":id")
-  remove(@Param("id") id: string, @Body() payload: DeleteEventDto) {
-    return this.events.remove(id, payload.actorUserId);
+  remove(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.events.remove(user.familyIds, id, user.userId);
   }
 }
 
 @Module({
+  imports: [AuthModule],
   controllers: [EventController],
   providers: [EventRepository, AuditRepository, EventService],
   exports: [EventService]

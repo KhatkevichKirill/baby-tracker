@@ -10,6 +10,7 @@ import {
   updateEventInputSchema,
   type CreateEventInput
 } from "@baby-tracker/shared";
+import { FamilyAccessService } from "../auth/family-access.service";
 import { AuditRepository } from "../repositories/audit.repository";
 import { EventRepository } from "../repositories/event.repository";
 
@@ -17,18 +18,34 @@ import { EventRepository } from "../repositories/event.repository";
 export class EventService {
   constructor(
     private readonly events: EventRepository,
-    private readonly audit: AuditRepository
+    private readonly audit: AuditRepository,
+    private readonly familyAccess: FamilyAccessService
   ) {}
 
-  async create(input: CreateEventInput & { createdById: string; rawInputId?: string }) {
-    return this.events.transaction((tx) => this.createInTransaction(tx, input));
+  async create(
+    familyIds: string[],
+    input: Omit<CreateEventInput, "familyId"> & { createdById: string; rawInputId?: string }
+  ) {
+    const child = await this.familyAccess.assertChildAccess(familyIds, input.childId);
+    if (input.rawInputId) {
+      await this.familyAccess.assertRawInputForChild(familyIds, input.rawInputId, child);
+    }
+    const payload: CreateEventInput & { createdById: string; rawInputId?: string } = {
+      ...input,
+      familyId: child.familyId
+    };
+    return this.events.transaction((tx) => this.createInTransaction(tx, payload, familyIds));
   }
 
   async createInTransaction(
     tx: Prisma.TransactionClient,
-    input: CreateEventInput & { createdById: string; rawInputId?: string }
+    input: CreateEventInput & { createdById: string; rawInputId?: string },
+    familyIds?: string[]
   ) {
     const event = createEventInputSchema.parse(input);
+    if (familyIds) {
+      this.familyAccess.assertFamilyAccess(familyIds, event.familyId);
+    }
 
     const created = await this.events.create(
       {
@@ -62,13 +79,15 @@ export class EventService {
     return this.events.findWithRelations(created.id, tx);
   }
 
-  async getById(id: string) {
+  async getById(familyIds: string[], id: string) {
+    await this.familyAccess.assertEventAccess(familyIds, id);
     const event = await this.events.findById(id);
     if (!event) throw new NotFoundException("Event not found");
     return event;
   }
 
   async update(
+    familyIds: string[],
     id: string,
     input: {
       occurredAt?: string;
@@ -80,15 +99,18 @@ export class EventService {
     const patch = updateEventInputSchema.parse(input);
 
     return this.events.transaction(async (tx) => {
-      const existing = await tx.event.findFirst({
+      const existing = await this.familyAccess.assertEventAccess(familyIds, id);
+      const existingWithRelations = await tx.event.findFirst({
         where: { id, deletedAt: null },
         include: { feedingEvent: true, sleepEvent: true, diaperEvent: true, symptomEvent: true, measurement: true }
       });
-      if (!existing) throw new NotFoundException("Event not found");
+      if (!existingWithRelations) throw new NotFoundException("Event not found");
 
       const existingDetails =
-        existing.detailsJson && typeof existing.detailsJson === "object" && !Array.isArray(existing.detailsJson)
-          ? (existing.detailsJson as Record<string, unknown>)
+        existingWithRelations.detailsJson &&
+        typeof existingWithRelations.detailsJson === "object" &&
+        !Array.isArray(existingWithRelations.detailsJson)
+          ? (existingWithRelations.detailsJson as Record<string, unknown>)
           : {};
       const mergedDetails = patch.details ? { ...existingDetails, ...patch.details } : undefined;
 
@@ -103,7 +125,7 @@ export class EventService {
       );
 
       if (patch.details) {
-        await this.updateSubtype(tx, existing, patch.details);
+        await this.updateSubtype(tx, existingWithRelations, patch.details);
       }
 
       await this.audit.log(
@@ -123,10 +145,9 @@ export class EventService {
     });
   }
 
-  async remove(id: string, actorUserId: string) {
+  async remove(familyIds: string[], id: string, actorUserId: string) {
     return this.events.transaction(async (tx) => {
-      const existing = await tx.event.findFirst({ where: { id, deletedAt: null } });
-      if (!existing) throw new NotFoundException("Event not found");
+      const existing = await this.familyAccess.assertEventAccess(familyIds, id);
 
       await this.events.softDelete(id, tx);
 
@@ -146,7 +167,8 @@ export class EventService {
     });
   }
 
-  timeline(childId: string, type?: string) {
+  async timeline(familyIds: string[], childId: string, type?: string) {
+    await this.familyAccess.assertChildAccess(familyIds, childId);
     return this.events.findTimeline(childId, type as EventType | undefined);
   }
 
