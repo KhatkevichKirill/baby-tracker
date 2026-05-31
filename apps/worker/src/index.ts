@@ -1,42 +1,44 @@
-import { draftEventSchema } from "@baby-tracker/shared";
-import { RuleBasedRuProvider, type LlmProvider } from "./llm/provider";
+export {
+  CONFIDENCE_CONFIRM_THRESHOLD,
+  type LlmProvider,
+  type LlmProviderInput,
+  type LlmParseResult,
+  type LlmParseMetadata,
+  type ParseMessageInput,
+  type ParsedDraft,
+  type ParserFlowResult
+} from "./parser/types";
 
-type ParseResult =
-  | { ok: true; drafts: Array<unknown> }
-  | { ok: false; reason: string };
+export {
+  parseRawInputToDrafts,
+  parseViaProvider,
+  createFallbackNoteDraft
+} from "./parser/parse-message";
 
-export function parseMessageToDrafts(text: string): ParseResult {
-  // Placeholder parser for MVP wiring. Later replaced by LLM provider.
-  if (!text.trim()) return { ok: false, reason: "empty text" };
-  const draft = {
-    type: "note",
-    details: { text },
-    confidence: 0.4,
-    sourceFragment: text
-  };
-  const validated = draftEventSchema.safeParse(draft);
-  if (!validated.success) return { ok: false, reason: "invalid draft schema" };
-  return { ok: true, drafts: [validated.data] };
-}
+export {
+  MockLlmProvider,
+  RuleBasedRuProvider,
+  createDefaultProvider
+} from "./llm/provider";
 
-export async function parseViaProvider(
-  text: string,
-  provider: LlmProvider = new RuleBasedRuProvider()
-): Promise<ParseResult> {
-  if (!text.trim()) return { ok: false, reason: "empty text" };
+export { OpenAiLlmProvider } from "./llm/openai-provider";
+export { parseAndValidateDraftsJson, extractJsonPayload } from "./llm/json-parser";
+export { buildParseRuPrompt, parseRuPromptTemplate } from "./templates/parse-ru.template";
 
-  const result = await provider.parseRawMessage({
-    text,
-    timezone: "UTC"
+import { RuleBasedRuProvider } from "./llm/provider";
+import { parseRawInputToDrafts } from "./parser/parse-message";
+
+/** @deprecated Use parseRawInputToDrafts — kept for backward compatibility. */
+export function parseMessageToDrafts(text: string) {
+  return parseRawInputToDrafts(
+    { text, rawInputId: "00000000-0000-4000-8000-000000000000" },
+    new RuleBasedRuProvider()
+  ).then((result) => {
+    if (!result.ok) {
+      return { ok: false as const, reason: result.reason ?? "parse_failed", drafts: result.drafts };
+    }
+    return { ok: true as const, drafts: result.drafts };
   });
-
-  const validated = result.drafts
-    .map((item) => draftEventSchema.safeParse(item))
-    .filter((item) => item.success)
-    .map((item) => item.data);
-
-  if (!validated.length) {
-    return { ok: false, reason: "provider returned no valid drafts" };
-  }
-  return { ok: true, drafts: validated };
 }
+
+console.log("Worker parser module loaded. Use parseRawInputToDrafts for confirmable draft flow.");
