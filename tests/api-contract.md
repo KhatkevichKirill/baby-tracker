@@ -169,8 +169,43 @@ Linked bot session calls `GET /analytics/daily/:childId?format=text` with `Autho
 
 ## Files
 
-- `POST /files` — attachment metadata
-- `GET /files/:id`
+Allowed mime types: `application/pdf`, `image/jpeg`, `image/png`, `image/webp`, `text/plain`.
+Max size: 10 MiB per file.
+
+- `POST /files/upload` — multipart form: `eventId` (uuid), `file` (binary). Creates attachment linked to `familyId`, `childId`, `eventId`.
+- `GET /files/:id` — attachment metadata (family-scoped)
+- `GET /files/:id/download` — download with `Content-Disposition: attachment`
+- `GET /files/:id/preview` — inline preview for pdf/images/text only
+- `DELETE /files/:id` — delete attachment record and stored file
+
+### Doctor visit / lab result events
+
+`doctor_visit` and `lab_result` store structured details in `detailsJson` (no subtype table).
+
+Doctor visit `details` example:
+
+```json
+{
+  "providerName": "Dr. Example",
+  "facility": "City Clinic",
+  "visitType": "routine",
+  "reason": "Wellness check",
+  "attachmentIds": ["..."]
+}
+```
+
+Lab result `details` example:
+
+```json
+{
+  "testName": "Complete blood count",
+  "labName": "Example Lab",
+  "values": [{ "name": "Hemoglobin", "value": "12.1", "unit": "g/dL", "flag": "normal" }],
+  "attachmentIds": ["..."]
+}
+```
+
+Event deletion purges linked attachment rows and stored files after the delete transaction commits. If attachment cleanup fails, the event remains deleted and the response includes `attachmentCleanup: { status: "failed", retryable: true }`.
 
 ## Telegram
 
