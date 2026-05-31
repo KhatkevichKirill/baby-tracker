@@ -1,53 +1,102 @@
-import { Body, Controller, Get, Module, Param, Post } from "@nestjs/common";
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  Module,
+  Param,
+  Post,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors
+} from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
 import { z } from "zod";
 import { CurrentUser } from "../auth/current-user.decorator";
 import type { RequestUser } from "../auth/auth.types";
-import { FamilyAccessService } from "../auth/family-access.service";
-import { PrismaService } from "../services/prisma.service";
+import { zodPipe } from "../common/pipes/zod-validation.pipe";
+import { AttachmentService } from "../services/attachment.service";
+import { MAX_ATTACHMENT_BYTES } from "../services/attachment.constants";
 import { AuthModule } from "./auth.module";
 
-const createAttachmentSchema = z.object({
-  eventId: z.string().uuid(),
-  fileName: z.string().min(1).max(255),
-  mimeType: z.string().min(1).max(120),
-  sizeBytes: z.number().int().positive().max(10 * 1024 * 1024),
-  storagePath: z.string().min(1).max(500)
+const uploadBodySchema = z.object({
+  eventId: z.string().uuid()
 });
+
+type UploadedFilePayload = {
+  originalname: string;
+  mimetype: string;
+  buffer: Buffer;
+};
 
 @Controller("files")
 class FileController {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly familyAccess: FamilyAccessService
-  ) {}
+  constructor(private readonly attachments: AttachmentService) {}
 
-  @Post()
-  async createMetadata(@CurrentUser() user: RequestUser, @Body() body: unknown) {
-    const payload = createAttachmentSchema.parse(body);
-    const event = await this.familyAccess.assertEventAccess(user.familyIds, payload.eventId);
+  @Post("upload")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      limits: { fileSize: MAX_ATTACHMENT_BYTES, files: 1 }
+    })
+  )
+  upload(
+    @CurrentUser() user: RequestUser,
+    @UploadedFile() file: UploadedFilePayload | undefined,
+    @Body(zodPipe(uploadBodySchema)) body: z.infer<typeof uploadBodySchema>
+  ) {
+    if (!file) {
+      throw new BadRequestException("File is required");
+    }
 
-    return this.prisma.eventAttachment.create({
-      data: {
-        eventId: event.id,
-        familyId: event.familyId,
-        childId: event.childId,
-        fileName: payload.fileName,
-        mimeType: payload.mimeType,
-        sizeBytes: payload.sizeBytes,
-        storagePath: payload.storagePath
-      }
+    return this.attachments.upload(user.familyIds, {
+      eventId: body.eventId,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      buffer: file.buffer
     });
   }
 
   @Get(":id")
-  async byId(@CurrentUser() user: RequestUser, @Param("id") id: string) {
-    await this.familyAccess.assertAttachmentAccess(user.familyIds, id);
-    return this.prisma.eventAttachment.findUnique({ where: { id } });
+  metadata(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.attachments.getMetadata(user.familyIds, id);
+  }
+
+  @Get(":id/download")
+  @Header("Cache-Control", "private, no-store")
+  async download(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string
+  ): Promise<StreamableFile> {
+    const { file } = await this.attachments.download(user.familyIds, id, "attachment");
+    return file;
+  }
+
+  @Get(":id/preview")
+  @Header("Cache-Control", "private, no-store")
+  async preview(
+    @CurrentUser() user: RequestUser,
+    @Param("id") id: string
+  ): Promise<StreamableFile> {
+    const attachment = await this.attachments.getMetadata(user.familyIds, id);
+    if (!this.attachments.canPreview(attachment.mimeType)) {
+      throw new BadRequestException("Preview is not available for this file type");
+    }
+    const { file } = await this.attachments.download(user.familyIds, id, "inline");
+    return file;
+  }
+
+  @Delete(":id")
+  remove(@CurrentUser() user: RequestUser, @Param("id") id: string) {
+    return this.attachments.deleteById(user.familyIds, id);
   }
 }
 
 @Module({
   imports: [AuthModule],
-  controllers: [FileController]
+  controllers: [FileController],
+  providers: [AttachmentService],
+  exports: [AttachmentService]
 })
 export class FileModule {}

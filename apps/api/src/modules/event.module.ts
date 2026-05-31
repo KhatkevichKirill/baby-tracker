@@ -11,6 +11,7 @@ import { AuditRepository } from "../repositories/audit.repository";
 import { EventRepository } from "../repositories/event.repository";
 import { EventService } from "../services/event.service";
 import { AuthModule } from "./auth.module";
+import { FileModule } from "./file.module";
 
 const createEventBodySchema = createEventInputSchema.omit({ familyId: true }).extend({
   rawInputId: z.string().uuid().optional()
@@ -66,7 +67,7 @@ class EventController {
 }
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, FileModule],
   controllers: [EventController],
   providers: [EventRepository, AuditRepository, EventService],
   exports: [EventService]

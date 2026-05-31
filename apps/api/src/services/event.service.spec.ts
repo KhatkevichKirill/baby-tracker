@@ -13,6 +13,7 @@ describe("EventService", () => {
     softDelete: vi.fn()
   };
   const audit = { log: vi.fn() };
+  const attachments = { purgeEventAttachments: vi.fn().mockResolvedValue(0) };
   const familyAccess = {
     assertChildAccess: vi.fn(),
     assertFamilyAccess: vi.fn(),
@@ -24,7 +25,16 @@ describe("EventService", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new EventService(events as never, audit as never, familyAccess as never);
+    events.transaction.mockImplementation((fn) => fn({}));
+    events.softDelete.mockResolvedValue(undefined);
+    audit.log.mockResolvedValue(undefined);
+    attachments.purgeEventAttachments.mockResolvedValue(0);
+    service = new EventService(
+      events as never,
+      audit as never,
+      familyAccess as never,
+      attachments as never
+    );
     familyAccess.assertChildAccess.mockResolvedValue({
       id: "11111111-1111-4111-8111-111111111111",
       familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -144,5 +154,106 @@ describe("EventService", () => {
       "11111111-1111-4111-8111-111111111111",
       "feeding"
     );
+  });
+
+  it("validates doctor visit details on create", async () => {
+    const tx = {};
+    events.transaction.mockImplementation((fn) => fn(tx));
+
+    await service.create(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"], {
+      childId: "11111111-1111-4111-8111-111111111111",
+      createdById: "22222222-2222-4222-8222-222222222222",
+      type: "doctor_visit",
+      occurredAt: "2026-05-29T10:00:00.000Z",
+      source: "web",
+      details: { providerName: "Dr. Example", visitType: "routine" }
+    });
+
+    expect(events.create).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "doctor_visit" }),
+      tx
+    );
+  });
+
+  it("purges attachments after delete transaction succeeds", async () => {
+    familyAccess.assertEventAccess.mockResolvedValue({
+      id: "event-1",
+      familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      childId: "11111111-1111-4111-8111-111111111111"
+    });
+    const callOrder: string[] = [];
+    events.transaction.mockImplementation(async (fn) => fn({}));
+    events.softDelete.mockImplementation(async () => {
+      callOrder.push("softDelete");
+    });
+    audit.log.mockImplementation(async () => {
+      callOrder.push("audit");
+    });
+    attachments.purgeEventAttachments.mockImplementation(async () => {
+      callOrder.push("purge");
+      return 1;
+    });
+
+    const result = await service.remove(
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      "event-1",
+      "22222222-2222-4222-8222-222222222222"
+    );
+
+    expect(callOrder).toEqual(["softDelete", "audit", "purge"]);
+    expect(events.softDelete).toHaveBeenCalledWith("event-1", {});
+    expect(result).toMatchObject({
+      id: "event-1",
+      deleted: true,
+      attachmentCleanup: { status: "ok", purgedCount: 1 }
+    });
+  });
+
+  it("does not purge attachments when delete transaction fails", async () => {
+    familyAccess.assertEventAccess.mockResolvedValue({
+      id: "event-1",
+      familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      childId: "11111111-1111-4111-8111-111111111111"
+    });
+    events.transaction.mockImplementation(async (fn) => {
+      events.softDelete.mockRejectedValue(new Error("transaction failed"));
+      await fn({});
+    });
+
+    await expect(
+      service.remove(
+        ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+        "event-1",
+        "22222222-2222-4222-8222-222222222222"
+      )
+    ).rejects.toThrow("transaction failed");
+
+    expect(attachments.purgeEventAttachments).not.toHaveBeenCalled();
+  });
+
+  it("returns retryable cleanup error when purge fails after delete", async () => {
+    familyAccess.assertEventAccess.mockResolvedValue({
+      id: "event-1",
+      familyId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      childId: "11111111-1111-4111-8111-111111111111"
+    });
+    events.transaction.mockImplementation(async (fn) => fn({}));
+    attachments.purgeEventAttachments.mockRejectedValue(new Error("disk unavailable"));
+
+    const result = await service.remove(
+      ["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"],
+      "event-1",
+      "22222222-2222-4222-8222-222222222222"
+    );
+
+    expect(result).toMatchObject({
+      id: "event-1",
+      deleted: true,
+      attachmentCleanup: {
+        status: "failed",
+        message: "disk unavailable",
+        retryable: true
+      }
+    });
   });
 });

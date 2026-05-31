@@ -7,19 +7,23 @@ import {
   diaperEventDetailsSchema,
   symptomEventDetailsSchema,
   measurementEventDetailsSchema,
+  doctorVisitEventDetailsSchema,
+  labResultEventDetailsSchema,
   updateEventInputSchema,
   type CreateEventInput
 } from "@baby-tracker/shared";
 import { FamilyAccessService } from "../auth/family-access.service";
 import { AuditRepository } from "../repositories/audit.repository";
 import { EventRepository } from "../repositories/event.repository";
+import { AttachmentService } from "./attachment.service";
 
 @Injectable()
 export class EventService {
   constructor(
     private readonly events: EventRepository,
     private readonly audit: AuditRepository,
-    private readonly familyAccess: FamilyAccessService
+    private readonly familyAccess: FamilyAccessService,
+    private readonly attachments: AttachmentService
   ) {}
 
   async create(
@@ -146,7 +150,7 @@ export class EventService {
   }
 
   async remove(familyIds: string[], id: string, actorUserId: string) {
-    return this.events.transaction(async (tx) => {
+    const result = await this.events.transaction(async (tx) => {
       const existing = await this.familyAccess.assertEventAccess(familyIds, id);
 
       await this.events.softDelete(id, tx);
@@ -165,6 +169,23 @@ export class EventService {
 
       return { id, deleted: true };
     });
+
+    try {
+      const purgedCount = await this.attachments.purgeEventAttachments(id);
+      return {
+        ...result,
+        attachmentCleanup: { status: "ok" as const, purgedCount }
+      };
+    } catch (error) {
+      return {
+        ...result,
+        attachmentCleanup: {
+          status: "failed" as const,
+          message: error instanceof Error ? error.message : "Attachment cleanup failed",
+          retryable: true
+        }
+      };
+    }
   }
 
   async timeline(familyIds: string[], childId: string, type?: string) {
@@ -204,6 +225,12 @@ export class EventService {
     if (event.type === "measurement") {
       const details = measurementEventDetailsSchema.parse(event.details);
       await tx.measurementEvent.create({ data: { eventId, ...details } });
+    }
+    if (event.type === "doctor_visit") {
+      doctorVisitEventDetailsSchema.parse(event.details);
+    }
+    if (event.type === "lab_result") {
+      labResultEventDetailsSchema.parse(event.details);
     }
   }
 
@@ -246,6 +273,12 @@ export class EventService {
     if (existing.type === "measurement" && existing.measurement) {
       const parsed = measurementEventDetailsSchema.partial().parse(details);
       await tx.measurementEvent.update({ where: { eventId: existing.id }, data: parsed });
+    }
+    if (existing.type === "doctor_visit") {
+      doctorVisitEventDetailsSchema.partial().parse(details);
+    }
+    if (existing.type === "lab_result") {
+      labResultEventDetailsSchema.partial().parse(details);
     }
   }
 }
