@@ -1,10 +1,31 @@
-FROM node:22-alpine
+FROM node:22-alpine AS base
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-workspace.yaml ./
+
+FROM base AS deps
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/web/package.json apps/web/package.json
-RUN pnpm install --filter @baby-tracker/web...
+COPY packages/shared/package.json packages/shared/package.json
+RUN pnpm install --filter @baby-tracker/web... --frozen-lockfile
+
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/shared packages/shared
 COPY apps/web apps/web
-WORKDIR /app/apps/web
+RUN pnpm --filter @baby-tracker/shared build
+RUN pnpm --filter @baby-tracker/web build
+
+FROM node:22-alpine AS runner
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT_WEB=3000
+RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
+COPY --from=builder /app/apps/web/public ./apps/web/public
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/apps/web/.next/static ./apps/web/.next/static
+USER nextjs
 EXPOSE 3000
-CMD ["pnpm", "dev"]
+CMD ["node", "apps/web/server.js"]
