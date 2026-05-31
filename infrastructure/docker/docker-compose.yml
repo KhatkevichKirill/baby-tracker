@@ -1,3 +1,6 @@
+# Local development stack (bind-mount source, hot reload).
+# Production: use docker-compose.prod.yml — see infrastructure/docker/DEPLOYMENT.md
+
 services:
   postgres:
     image: postgres:16
@@ -58,6 +61,8 @@ services:
     command: sh -c "corepack enable && pnpm install && pnpm --filter @baby-tracker/bot dev"
     env_file:
       - ../../.env.example
+    environment:
+      API_BASE_URL: http://api:3001
     volumes:
       - ../../:/workspace
     depends_on:
@@ -68,16 +73,11 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - ../caddy/Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
     depends_on:
       - web
       - api
 
 volumes:
   postgres_data:
-  caddy_data:
-  caddy_config:

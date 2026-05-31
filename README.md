@@ -41,11 +41,21 @@ pnpm dev               # api :3001, web :3000, bot/worker — по env
 pnpm compose:config
 ```
 
+## Quick Start (production VPS)
+
+See **`infrastructure/docker/DEPLOYMENT.md`** for full steps. Summary:
+
+```bash
+cp infrastructure/docker/env.production.example .env   # fill secrets locally
+docker-compose -f infrastructure/docker/docker-compose.prod.yml --env-file .env config
+docker-compose -f infrastructure/docker/docker-compose.prod.yml --env-file .env up -d --build
+```
+
 ## Quick Start (Docker dev stack)
 
 ```bash
 cp .env.example .env   # опционально для локальных override
-docker compose -f infrastructure/docker/docker-compose.yml up -d
+docker-compose -f infrastructure/docker/docker-compose.yml up -d
 # API/worker получают DATABASE_URL на postgres из compose
 ```
 
