@@ -48,6 +48,9 @@ export class ApiClient {
   async redeemLink(code: string, telegramUserId: string, telegramChatId?: string) {
     return this.request<BotSession>("/telegram/link", {
       method: "POST",
+      headers: {
+        "x-bot-secret": this.options.botSecret
+      },
       body: JSON.stringify({
         code,
         telegramUserId,

@@ -1,8 +1,11 @@
 import { ForbiddenException, Injectable, NotFoundException, UnauthorizedException } from "@nestjs/common";
+import bcrypt from "bcrypt";
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { PrismaService } from "../services/prisma.service";
 import { JwtService } from "./jwt.service";
+
+const BCRYPT_ROUNDS = 12;
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -15,8 +18,19 @@ const setupSchema = loginSchema.extend({
   displayName: z.string().min(1).max(120)
 });
 
-function hashPassword(password: string, salt: string) {
+function hashPasswordLegacy(password: string, salt: string) {
   return createHash("sha256").update(`${salt}:${password}`).digest("hex");
+}
+
+async function hashPassword(password: string) {
+  return bcrypt.hash(password, BCRYPT_ROUNDS);
+}
+
+async function verifyPassword(password: string, passwordHash: string, passwordSalt: string) {
+  if (passwordHash.startsWith("$2")) {
+    return bcrypt.compare(password, passwordHash);
+  }
+  return passwordHash === hashPasswordLegacy(password, passwordSalt);
 }
 
 @Injectable()
@@ -44,7 +58,7 @@ export class AuthService {
         email: dto.email,
         displayName: dto.displayName,
         passwordSalt,
-        passwordHash: hashPassword(dto.password, passwordSalt)
+        passwordHash: await hashPassword(dto.password)
       }
     });
     await this.prisma.caregiver.create({
@@ -61,8 +75,15 @@ export class AuthService {
   async login(input: z.infer<typeof loginSchema>) {
     const dto = loginSchema.parse(input);
     const user = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (!user || user.passwordHash !== hashPassword(dto.password, user.passwordSalt)) {
+    if (!user || !(await verifyPassword(dto.password, user.passwordHash, user.passwordSalt))) {
       throw new UnauthorizedException("Invalid credentials");
+    }
+
+    if (!user.passwordHash.startsWith("$2")) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: await hashPassword(dto.password) }
+      });
     }
 
     const caregivers = await this.prisma.caregiver.findMany({

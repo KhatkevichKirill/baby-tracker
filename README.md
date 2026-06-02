@@ -5,7 +5,7 @@ Self-hosted семейный дневник ребенка с вводом че�
 ## Monorepo Layout
 
 - `apps/api` — NestJS API + Prisma
-- `apps/web` — веб-интерфейс (scaffold, Node HTTP server)
+- `apps/web` — Next.js веб-интерфейс (dashboard, timeline, drafts, analytics)
 - `apps/bot` — Telegraf bot
 - `apps/worker` — фоновые задачи (LLM, отчеты)
 - `packages/shared` — общие типы и zod-схемы
@@ -41,11 +41,21 @@ pnpm dev               # api :3001, web :3000, bot/worker — по env
 pnpm compose:config
 ```
 
+## Quick Start (production VPS)
+
+See **`infrastructure/docker/DEPLOYMENT.md`** for full steps. Summary:
+
+```bash
+cp infrastructure/docker/env.production.example .env   # fill secrets locally
+docker-compose -f infrastructure/docker/docker-compose.prod.yml --env-file .env config
+docker-compose -f infrastructure/docker/docker-compose.prod.yml --env-file .env up -d --build
+```
+
 ## Quick Start (Docker dev stack)
 
 ```bash
 cp .env.example .env   # опционально для локальных override
-docker compose -f infrastructure/docker/docker-compose.yml up -d
+docker-compose -f infrastructure/docker/docker-compose.yml up -d
 # API/worker получают DATABASE_URL на postgres из compose
 ```
 
@@ -82,6 +92,13 @@ import { draftEventSchema } from "@baby-tracker/shared";
 ## Agent Handoff
 
 Готовые задачи для реализации по агентам лежат в `docs/agent-tasks/`.
+Git workflow для агентов: `docs/agent-tasks/git-workflow.md`.
+
+Remote проекта:
+
+```bash
+git@github.com:KhatkevichKirill/baby-tracker.git
+```
 
 Рекомендуемый порядок:
 

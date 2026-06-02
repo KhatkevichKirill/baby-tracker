@@ -18,11 +18,15 @@ const createLinkTokenSchema = z.object({
   childId: z.string().uuid()
 });
 
+const LINK_CODE_LENGTH = 32;
+
 const redeemLinkSchema = z.object({
-  code: z.string().min(6).max(12),
+  code: z.string().min(LINK_CODE_LENGTH).max(LINK_CODE_LENGTH),
   telegramUserId: z.string().min(1).max(64),
   telegramChatId: z.string().min(1).max(64).optional()
 });
+
+const INVALID_LINK_CODE_MESSAGE = "Invalid or expired link code";
 
 @Injectable()
 export class TelegramService {
@@ -54,7 +58,7 @@ export class TelegramService {
     const payload = createLinkTokenSchema.parse(input);
     await this.familyAccess.assertChildAccess(familyIds, payload.childId);
 
-    const code = randomBytes(4).toString("hex").slice(0, 8).toUpperCase();
+    const code = randomBytes(16).toString("hex").toUpperCase();
     const expiresAt = new Date(Date.now() + LINK_TOKEN_TTL_MS);
 
     const token = await this.prisma.telegramLinkToken.create({
@@ -85,14 +89,8 @@ export class TelegramService {
       }
     });
 
-    if (!linkToken) {
-      throw new NotFoundException("Link code not found");
-    }
-    if (linkToken.usedAt) {
-      throw new BadRequestException("Link code already used");
-    }
-    if (linkToken.expiresAt.getTime() < Date.now()) {
-      throw new BadRequestException("Link code expired");
+    if (!linkToken || linkToken.usedAt || linkToken.expiresAt.getTime() < Date.now()) {
+      throw new BadRequestException(INVALID_LINK_CODE_MESSAGE);
     }
 
     const existingTelegramUser = await this.prisma.user.findUnique({

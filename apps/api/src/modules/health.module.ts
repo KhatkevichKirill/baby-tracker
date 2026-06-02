@@ -1,9 +1,9 @@
-import { Controller, Get, Module } from "@nestjs/common";
+import { Controller, Get, Module, ServiceUnavailableException } from "@nestjs/common";
 import { PrismaService } from "../services/prisma.service";
 import { Public } from "../auth/public.decorator";
 
 @Controller("health")
-class HealthController {
+export class HealthController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Public()
@@ -13,7 +13,11 @@ class HealthController {
       await this.prisma.$queryRaw`SELECT 1`;
       return { ok: true, service: "baby-tracker-api", database: "connected" };
     } catch {
-      return { ok: false, service: "baby-tracker-api", database: "disconnected" };
+      throw new ServiceUnavailableException({
+        ok: false,
+        service: "baby-tracker-api",
+        database: "disconnected"
+      });
     }
   }
 }

@@ -11,7 +11,8 @@
     "format": "pnpm -r format",
     "db:generate": "pnpm --filter @baby-tracker/api prisma:generate",
     "db:migrate": "pnpm --filter @baby-tracker/api prisma:migrate",
-    "compose:config": "docker-compose -f infrastructure/docker/docker-compose.yml config"
+    "compose:config": "docker-compose -f infrastructure/docker/docker-compose.yml config",
+    "compose:config:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml --env-file .env config"
   },
   "devDependencies": {
     "@types/node": "^22.15.21",
@@ -22,6 +23,7 @@
       "@nestjs/core",
       "@prisma/client",
       "@prisma/engines",
+      "bcrypt",
       "prisma"
     ]
   }
